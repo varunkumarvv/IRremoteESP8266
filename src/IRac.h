@@ -91,6 +91,7 @@ class IRac {
   static bool cmpStates(const stdAc::state_t a, const stdAc::state_t b);
   static bool strToBool(const char *str, const bool def = false);
   static int16_t strToModel(const char *str, const int16_t def = -1);
+  static bool isModelOf(const decode_type_t protocol, const char *str);
   static stdAc::ac_command_t strToCommandType(const char *str,
       const stdAc::ac_command_t def = stdAc::ac_command_t::kControlCommand);
   static stdAc::opmode_t strToOpmode(

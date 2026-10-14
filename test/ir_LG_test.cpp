@@ -697,6 +697,17 @@ TEST(TestUtils, Housekeeping) {
             IRac::strToModel(irutils::modelToStr(
                 decode_type_t::LG,
                 lg_ac_remote_model_t::LG6711A20083V).c_str()));
+  // Each protocol only names its own models, as IRLgAc::setModel() pairs them.
+  ASSERT_EQ("UNKNOWN", irutils::modelToStr(
+      decode_type_t::LG2, lg_ac_remote_model_t::GE6711AR2853M));
+  ASSERT_EQ("UNKNOWN", irutils::modelToStr(
+      decode_type_t::LG2, lg_ac_remote_model_t::LG6711A20083V));
+  ASSERT_EQ("UNKNOWN", irutils::modelToStr(
+      decode_type_t::LG, lg_ac_remote_model_t::AKB74955603));
+  ASSERT_EQ("UNKNOWN", irutils::modelToStr(
+      decode_type_t::LG, lg_ac_remote_model_t::AKB75215403));
+  ASSERT_EQ("UNKNOWN", irutils::modelToStr(
+      decode_type_t::LG, lg_ac_remote_model_t::AKB73757604));
 }
 
 TEST(TestIRLgAcClass, KnownExamples) {

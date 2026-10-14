@@ -1,6 +1,7 @@
 // Copyright 2019-2021 David Conran
 
 #include <string>
+#include <vector>
 #include "ir_Airton.h"
 #include "ir_Airwell.h"
 #include "ir_Amcor.h"
@@ -2841,6 +2842,72 @@ TEST(TestIRac, strToModel) {
   EXPECT_EQ(-1, IRac::strToModel("0"));
   EXPECT_EQ(-1, IRac::strToModel("FOOBAR"));
   EXPECT_EQ(0, IRac::strToModel("FOOBAR", 0));
+}
+
+TEST(TestIRac, isModelOf) {
+  // The canonical name passes, in any case.
+  EXPECT_TRUE(IRac::isModelOf(decode_type_t::LG2, "AKB74955603"));
+  EXPECT_TRUE(IRac::isModelOf(decode_type_t::LG2, "akb74955603"));
+  EXPECT_TRUE(IRac::isModelOf(decode_type_t::PANASONIC_AC, "DKE"));
+  EXPECT_TRUE(IRac::isModelOf(decode_type_t::VOLTAS, "122LZF"));
+  // Aliases fail.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::PANASONIC_AC, "PKR"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::WHIRLPOOL_AC, "DG11J104"));
+  // Another brand's model of the same number fails.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "ARDB1"));
+  // The other LG protocol's model fails.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "GE6711AR2853M"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG, "AKB74955603"));
+  // Numbers fail.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "2"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "+2"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "2abc"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "0"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "-1"));
+  // A protocol with no models takes none.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::DAIKIN72, "AKB74955603"));
+  // Unknown or empty names fail.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, "FOOBAR"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, ""));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::LG2, NULL));
+}
+
+// Every model name the app's catalog (AC_MODELS) may use passes on this pin,
+// and the names modelToStr() prints that strToModel() can't parse fail.
+TEST(TestIRac, isModelOfAcModelsList) {
+  struct ModelsOf {
+    const decode_type_t protocol;
+    const std::vector<std::string> names;
+  };
+  const std::vector<ModelsOf> ac_models = {
+      {decode_type_t::ARGO, {"WREM2", "WREM3"}},
+      {decode_type_t::FUJITSU_AC,
+       {"ARRAH2E", "ARDB1", "ARREB1E", "ARJW2", "ARRY4", "ARREW4E"}},
+      {decode_type_t::GREE, {"YAW1F", "YBOFB", "YX1FSF"}},
+      {decode_type_t::HAIER_AC176, {"V9014557-A", "V9014557-B"}},
+      {decode_type_t::HITACHI_AC1, {"R-LT0541-HTA-A", "R-LT0541-HTA-B"}},
+      {decode_type_t::LG, {"GE6711AR2853M", "LG6711A20083V"}},
+      {decode_type_t::LG2, {"AKB75215403", "AKB74955603", "AKB73757604"}},
+      {decode_type_t::PANASONIC_AC,
+       {"LKE", "NKE", "DKE", "JKE", "CKP", "RKR"}},
+      {decode_type_t::SHARP_AC, {"A907", "A705", "A903"}},
+      {decode_type_t::TCL112AC, {"TAC09CHSD", "GZ055BE1"}},
+      {decode_type_t::VOLTAS, {"122LZF"}},
+      {decode_type_t::WHIRLPOOL_AC, {"DG11J13A", "DG11J191"}},
+  };
+  for (const ModelsOf &models : ac_models) {
+    for (const std::string &name : models.names) {
+      EXPECT_TRUE(IRac::isModelOf(models.protocol, name.c_str()))
+          << typeToString(models.protocol) << " " << name;
+      EXPECT_EQ(name, irutils::modelToStr(
+          models.protocol, IRac::strToModel(name.c_str())));
+    }
+  }
+  // Named by modelToStr(), but not parsed by strToModel() on this pin.
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::MIRAGE, "KKG9AC1"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::MIRAGE, "KKG29AC1"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::TOSHIBA_AC, "TOSHIBA REMOTE A"));
+  EXPECT_FALSE(IRac::isModelOf(decode_type_t::TOSHIBA_AC, "TOSHIBA REMOTE B"));
 }
 
 TEST(TestIRac, strToCommandType) {

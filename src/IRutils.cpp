@@ -640,14 +640,19 @@ String modelToStr(const decode_type_t protocol, const int16_t model) {
           return kUnknownStr;
       }
       break;
+    // LG & LG2 are split as IRLgAc::setModel() pairs the models & protocols.
     case decode_type_t::LG:
-    case decode_type_t::LG2:
       switch (model) {
         case lg_ac_remote_model_t::GE6711AR2853M: return kGe6711ar2853mStr;
+        case lg_ac_remote_model_t::LG6711A20083V: return kLg6711a20083vStr;
+        default:                                  return kUnknownStr;
+      }
+      break;
+    case decode_type_t::LG2:
+      switch (model) {
         case lg_ac_remote_model_t::AKB75215403:   return kAkb75215403Str;
         case lg_ac_remote_model_t::AKB74955603:   return kAkb74955603Str;
         case lg_ac_remote_model_t::AKB73757604:   return kAkb73757604Str;
-        case lg_ac_remote_model_t::LG6711A20083V: return kLg6711a20083vStr;
         default:                                  return kUnknownStr;
       }
       break;

@@ -4122,6 +4122,23 @@ int16_t IRac::strToModel(const char *str, const int16_t def) {
   }
 }
 
+/// Is the supplied str the name of a model of the given protocol?
+/// @param[in] protocol The IR protocol the model should belong to.
+/// @param[in] str A Ptr to a C-style string of the model's name.
+/// @return true, if strToModel() parses the name, not as a plain number, and
+///   modelToStr() names the same model back for the protocol (ignoring case).
+///   Otherwise, false.
+/// @note Only the canonical name passes. An alias (e.g. "PKR" for "DKE"), a
+///   number, and another protocol's model of the same number all fail.
+bool IRac::isModelOf(const decode_type_t protocol, const char *str) {
+  if (str == NULL) return false;
+  const int16_t parsed = IRac::strToModel(str, -1);
+  // Refuse no match, and strToModel()'s atoi() fallback.
+  if (parsed < 0 || parsed == atoi(str)) return false;
+  // Both strings are in RAM, so no STRCASECMP() (flash) handling is needed.
+  return !strcasecmp(str, irutils::modelToStr(protocol, parsed).c_str());
+}
+
 /// Convert the supplied str into the appropriate boolean value.
 /// @param[in] str A Ptr to a C-style string to be converted.
 /// @param[in] def The boolean value to return if no conversion was possible.

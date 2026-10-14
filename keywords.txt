@@ -585,6 +585,7 @@ isCleanToggle	KEYWORD2
 isEconoToggle	KEYWORD2
 isLightToggle	KEYWORD2
 isLongCode	KEYWORD2
+isModelOf	KEYWORD2
 isOffCommand	KEYWORD2
 isOffTimerActive	KEYWORD2
 isOffTimerEnabled	KEYWORD2
