@@ -23,6 +23,9 @@
 /// @see Daikin64 https://github.com/crankyoldgit/IRremoteESP8266/issues/1064
 /// @see Daikin200 https://github.com/crankyoldgit/IRremoteESP8266/issues/1802
 /// @see Daikin312 https://github.com/crankyoldgit/IRremoteESP8266/issues/1829
+/// @see Daikin72 https://github.com/adityasanehi/daikin-rb2ca1-ir-reverse
+///   `daikin.py` (frame, timings, checksum) and `broadlink.py` (the learned
+///   code decoding), MIT License, Copyright (c) 2026 adityasanehi.
 
 // Supports:
 //   Brand: Daikin,  Model: ARC433** remote (DAIKIN)
@@ -55,6 +58,7 @@
 //   Brand: Daikin,  Model: ARC466A67 remote (DAIKIN312)
 //   Brand: Daikin,  Model: ARC443A5 remote (DAIKIN)
 //   Brand: Daikin,  Model: ARC466A58 remote (DAIKIN312)
+//   Brand: Daikin,  Model: RB2CA1 remote (DAIKIN72)
 
 #ifndef IR_DAIKIN_H_
 #define IR_DAIKIN_H_
@@ -682,6 +686,60 @@ const uint8_t kDaikin64MinTemp = 16;  // Celsius
 const uint8_t kDaikin64MaxTemp = 30;  // Celsius
 const uint8_t kDaikin64ChecksumOffset = 60;
 const uint8_t kDaikin64ChecksumSize = 4;  // Mask 0b1111 << 59
+
+/// Native representation of a Daikin72 A/C message.
+union Daikin72Protocol{
+  uint8_t raw[kDaikin72StateLength];  ///< The state of the IR remote.
+  struct {
+    // Byte 0
+    uint8_t             :8;  // Sync 1: 0xAA
+    // Byte 1
+    uint8_t             :8;  // Sync 2: 0x11
+    // Byte 2
+    uint8_t Fixed       :1;  // Always 1
+    uint8_t             :2;
+    uint8_t Power       :1;
+    uint8_t Fan         :3;
+    uint8_t Turbo       :1;
+    // Byte 3
+    uint8_t Temp        :8;  // Degrees Celsius minus kDaikin72TempOffset.
+    // Byte 4
+    uint8_t SwingV      :1;
+    uint8_t             :3;
+    uint8_t SwingH      :1;
+    uint8_t             :3;
+    // Byte 5
+    uint8_t Mode        :7;
+    uint8_t DisplayOff  :1;
+    // Byte 6
+    uint8_t             :8;
+    // Byte 7
+    uint8_t             :8;
+    // Byte 8
+    uint8_t Sum         :8;
+  };
+};
+
+const uint16_t kDaikin72Freq = 38000;  // Modulation Frequency in Hz.
+const uint16_t kDaikin72HdrMark = 7000;
+const uint16_t kDaikin72HdrSpace = 3500;
+const uint16_t kDaikin72BitMark = 450;
+const uint16_t kDaikin72OneSpace = 1300;
+const uint16_t kDaikin72ZeroSpace = 450;
+const uint32_t kDaikin72Gap = 109440;
+const uint8_t kDaikin72Sync1 = 0xAA;
+const uint8_t kDaikin72Sync2 = 0x11;
+const uint8_t kDaikin72ChecksumXor = 0xAA;
+const uint8_t kDaikin72Cool = 0x44;
+const uint8_t kDaikin72MinTemp = 18;  // Celsius
+const uint8_t kDaikin72MaxTemp = 30;  // Celsius
+const uint8_t kDaikin72TempOffset = 16;
+const uint8_t kDaikin72FanAuto = 0;
+const uint8_t kDaikin72FanMin = 1;
+const uint8_t kDaikin72FanLow = 2;
+const uint8_t kDaikin72FanMed = 3;
+const uint8_t kDaikin72FanHigh = 4;
+const uint8_t kDaikin72FanMax = 5;
 
 const uint16_t kDaikin200Freq = 38000;  // Modulation Frequency in Hz.
 const uint16_t kDaikin200HdrMark = 4920;
@@ -1553,6 +1611,65 @@ class IRDaikin64 {
   /// @endcond
 #endif
   Daikin64Protocol _;
+  void stateReset(void);
+  void checksum(void);
+};
+
+/// Class for handling detailed Daikin 72-bit A/C messages.
+/// @note The Daikin RB2CA1 (India) remote.
+class IRDaikin72 {
+ public:
+  explicit IRDaikin72(const uint16_t pin, const bool inverted = false,
+                      const bool use_modulation = true);
+
+#if SEND_DAIKIN72
+  void send(const uint16_t repeat = kDaikin72DefaultRepeat);
+  /// Run the calibration to calculate uSec timing offsets for this platform.
+  /// @return The uSec timing offset needed per modulation of the IR Led.
+  /// @note This will produce a 65ms IR signal pulse at 38kHz.
+  ///   Only ever needs to be run once per object instantiation, if at all.
+  int8_t calibrate(void) { return _irsend.calibrate(); }
+#endif  // SEND_DAIKIN72
+  void begin(void);
+  uint8_t* getRaw(void);
+  void setRaw(const uint8_t new_code[]);
+  static uint8_t calcChecksum(const uint8_t state[],
+                              const uint16_t length = kDaikin72StateLength);
+  static bool validChecksum(const uint8_t state[],
+                            const uint16_t length = kDaikin72StateLength);
+  void on(void);
+  void off(void);
+  void setPower(const bool on);
+  bool getPower(void) const;
+  void setTemp(const uint8_t temp);
+  uint8_t getTemp(void) const;
+  void setFan(const uint8_t fan);
+  uint8_t getFan(void) const;
+  void setMode(const uint8_t mode);
+  uint8_t getMode(void) const;
+  void setSwingVertical(const bool on);
+  bool getSwingVertical(void) const;
+  void setSwingHorizontal(const bool on);
+  bool getSwingHorizontal(void) const;
+  void setTurbo(const bool on);
+  bool getTurbo(void) const;
+  void setLight(const bool on);
+  bool getLight(void) const;
+  static uint8_t convertMode(const stdAc::opmode_t mode);
+  static uint8_t convertFan(const stdAc::fanspeed_t speed);
+  static stdAc::fanspeed_t toCommonFanSpeed(const uint8_t speed);
+  stdAc::state_t toCommon(void) const;
+  String toString(void) const;
+#ifndef UNIT_TEST
+
+ private:
+  IRsend _irsend;  ///< instance of the IR send class
+#else
+  /// @cond IGNORE
+  IRsendTest _irsend;  ///< instance of the testing IR send class
+  /// @endcond
+#endif
+  Daikin72Protocol _;
   void stateReset(void);
   void checksum(void);
 };

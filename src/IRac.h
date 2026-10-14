@@ -266,6 +266,13 @@ void daikin216(IRDaikin216 *ac,
                  const bool quiet, const bool turbo,
                  const int16_t sleep = -1, const int16_t clock = -1);
 #endif  // SEND_DAIKIN64
+#if SEND_DAIKIN72
+  void daikin72(IRDaikin72 *ac,
+                const bool on, const stdAc::opmode_t mode,
+                const float degrees, const stdAc::fanspeed_t fan,
+                const stdAc::swingv_t swingv, const stdAc::swingh_t swingh,
+                const bool turbo, const bool light);
+#endif  // SEND_DAIKIN72
 #if SEND_DELONGHI_AC
   void delonghiac(IRDelonghiAc *ac,
                   const bool on, const stdAc::opmode_t mode, const bool celsius,

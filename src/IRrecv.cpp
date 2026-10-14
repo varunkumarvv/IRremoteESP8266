@@ -1232,6 +1232,10 @@ bool IRrecv::decode(decode_results *results, irparams_t *save,
     DPRINTLN("Attempting Eurom decode");
     if (decodeEurom(results, offset, kEuromBits)) return true;
 #endif  // DECODE_EUROM
+#if DECODE_DAIKIN72
+    DPRINTLN("Attempting Daikin72 decode");
+    if (decodeDaikin72(results, offset, kDaikin72Bits)) return true;
+#endif  // DECODE_DAIKIN72
   // Typically new protocols are added above this line.
   }
 #if DECODE_HASH

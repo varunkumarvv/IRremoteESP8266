@@ -1566,6 +1566,13 @@ TEST(TestUtils, Housekeeping) {
   ASSERT_TRUE(IRac::isProtocolSupported(decode_type_t::DAIKIN312));
   ASSERT_EQ(kDaikin312Bits, IRsend::defaultBits(decode_type_t::DAIKIN312));
   ASSERT_EQ(kNoRepeat, IRsend::minRepeats(decode_type_t::DAIKIN312));
+
+  ASSERT_EQ("DAIKIN72", typeToString(decode_type_t::DAIKIN72));
+  ASSERT_EQ(decode_type_t::DAIKIN72, strToDecodeType("DAIKIN72"));
+  ASSERT_TRUE(hasACState(decode_type_t::DAIKIN72));
+  ASSERT_TRUE(IRac::isProtocolSupported(decode_type_t::DAIKIN72));
+  ASSERT_EQ(kDaikin72Bits, IRsend::defaultBits(decode_type_t::DAIKIN72));
+  ASSERT_EQ(kNoRepeat, IRsend::minRepeats(decode_type_t::DAIKIN72));
 }
 
 // https://github.com/crankyoldgit/IRremoteESP8266/issues/582#issuecomment-453863879
@@ -4491,4 +4498,312 @@ TEST(TestDaikin312Class, toCommon) {
   ASSERT_EQ(stdAc::swingv_t::kAuto, ac.toCommon().swingv);
   ASSERT_EQ(stdAc::swingh_t::kAuto, ac.toCommon().swingh);
   ASSERT_EQ(6 * 60, ac.toCommon().sleep);
+}
+
+// Daikin72 (the RB2CA1 (India) remote).
+// Ref: https://github.com/adityasanehi/daikin-rb2ca1-ir-reverse
+// The two power presses captured at an ESP-12E board on 2026-10-08:
+// 24C, Cool, Fan auto, both swings off, display off.
+const uint8_t kDaikin72PowerOnState[kDaikin72StateLength] = {
+    0xAA, 0x11, 0x09, 0x08, 0x00, 0xC4, 0x00, 0x00, 0x3A};
+const uint8_t kDaikin72PowerOffState[kDaikin72StateLength] = {
+    0xAA, 0x11, 0x01, 0x08, 0x00, 0xC4, 0x00, 0x00, 0x22};
+
+TEST(TestDaikin72Class, ReconstructCapturedStates) {
+  IRDaikin72 ac(kGpioUnused);
+  ac.begin();
+  // The reset state: power off, 24C, Cool, Fan auto, swings off, display on.
+  const uint8_t reset_state[kDaikin72StateLength] = {
+      0xAA, 0x11, 0x01, 0x08, 0x00, 0x44, 0x00, 0x00, 0xA2};
+  EXPECT_STATE_EQ(reset_state, ac.getRaw(), kDaikin72Bits);
+  ac.setPower(true);
+  ac.setTemp(24);
+  ac.setFan(kDaikin72FanAuto);
+  ac.setMode(kDaikin72Cool);
+  ac.setSwingVertical(false);
+  ac.setSwingHorizontal(false);
+  ac.setTurbo(false);
+  ac.setLight(false);
+  EXPECT_STATE_EQ(kDaikin72PowerOnState, ac.getRaw(), kDaikin72Bits);
+  EXPECT_EQ(
+      "Power: On, Mode: 68 (Cool), Temp: 24C, Fan: 0 (Auto), "
+      "Swing(V): Off, Swing(H): Off, Turbo: Off, Light: Off",
+      ac.toString());
+  ac.off();
+  EXPECT_STATE_EQ(kDaikin72PowerOffState, ac.getRaw(), kDaikin72Bits);
+  ac.on();
+  EXPECT_STATE_EQ(kDaikin72PowerOnState, ac.getRaw(), kDaikin72Bits);
+  // setRaw() round trip.
+  IRDaikin72 other(kGpioUnused);
+  other.setRaw(kDaikin72PowerOffState);
+  EXPECT_FALSE(other.getPower());
+  EXPECT_FALSE(other.getLight());
+  EXPECT_EQ(24, other.getTemp());
+  EXPECT_STATE_EQ(kDaikin72PowerOffState, other.getRaw(), kDaikin72Bits);
+}
+
+TEST(TestDaikin72Class, Checksum) {
+  EXPECT_TRUE(IRDaikin72::validChecksum(kDaikin72PowerOnState));
+  EXPECT_TRUE(IRDaikin72::validChecksum(kDaikin72PowerOffState));
+  const uint8_t display_on[kDaikin72StateLength] = {
+      0xAA, 0x11, 0x09, 0x08, 0x00, 0x44, 0x00, 0x00, 0xBA};
+  EXPECT_TRUE(IRDaikin72::validChecksum(display_on));
+  // daikin.py's self-check vector: 24C, Fan 5, display off.
+  const uint8_t fan5_display_off[kDaikin72StateLength] = {
+      0xAA, 0x11, 0x59, 0x08, 0x00, 0xC4, 0x00, 0x00, 0x4A};
+  EXPECT_TRUE(IRDaikin72::validChecksum(fan5_display_off));
+  EXPECT_EQ(0x4A, IRDaikin72::calcChecksum(fan5_display_off));
+  // Any one byte changed fails.
+  for (uint8_t i = 0; i < kDaikin72StateLength; i++) {
+    uint8_t changed[kDaikin72StateLength];
+    std::memcpy(changed, kDaikin72PowerOnState, kDaikin72StateLength);
+    changed[i] ^= 0x01;
+    EXPECT_FALSE(IRDaikin72::validChecksum(changed)) << "Byte " << +i;
+  }
+  // The sync bytes are required even with a matching sum.
+  const uint8_t bad_sync[kDaikin72StateLength] = {
+      0xAB, 0x10, 0x09, 0x08, 0x00, 0xC4, 0x00, 0x00, 0x3A};
+  EXPECT_FALSE(IRDaikin72::validChecksum(bad_sync));
+  // Too short.
+  EXPECT_FALSE(IRDaikin72::validChecksum(kDaikin72PowerOnState,
+                                         kDaikin72StateLength - 1));
+}
+
+TEST(TestDaikin72Class, SettersAndToString) {
+  IRDaikin72 ac(kGpioUnused);
+  ac.begin();
+  // Temperature.
+  ac.setTemp(0);
+  EXPECT_EQ(kDaikin72MinTemp, ac.getTemp());
+  ac.setTemp(17);
+  EXPECT_EQ(18, ac.getTemp());
+  ac.setTemp(18);
+  EXPECT_EQ(18, ac.getTemp());
+  EXPECT_EQ(0x02, ac.getRaw()[3]);
+  ac.setTemp(30);
+  EXPECT_EQ(30, ac.getTemp());
+  EXPECT_EQ(0x0E, ac.getRaw()[3]);
+  ac.setTemp(31);
+  EXPECT_EQ(kDaikin72MaxTemp, ac.getTemp());
+  ac.setTemp(255);
+  EXPECT_EQ(30, ac.getTemp());
+  ac.setTemp(24);
+  // Fan.
+  for (uint8_t fan = kDaikin72FanAuto; fan <= kDaikin72FanMax; fan++) {
+    ac.setFan(fan);
+    EXPECT_EQ(fan, ac.getFan());
+    EXPECT_EQ((fan << 4) | 0x01, ac.getRaw()[2]);
+  }
+  ac.setFan(kDaikin72FanMax + 1);
+  EXPECT_EQ(kDaikin72FanAuto, ac.getFan());
+  ac.setFan(3);
+  ac.setFan(255);
+  EXPECT_EQ(kDaikin72FanAuto, ac.getFan());
+  // Swings.
+  ac.setSwingVertical(true);
+  EXPECT_TRUE(ac.getSwingVertical());
+  EXPECT_EQ(0x01, ac.getRaw()[4]);
+  ac.setSwingHorizontal(true);
+  EXPECT_TRUE(ac.getSwingHorizontal());
+  EXPECT_EQ(0x11, ac.getRaw()[4]);
+  ac.setSwingVertical(false);
+  EXPECT_FALSE(ac.getSwingVertical());
+  EXPECT_EQ(0x10, ac.getRaw()[4]);
+  ac.setSwingHorizontal(false);
+  EXPECT_FALSE(ac.getSwingHorizontal());
+  EXPECT_EQ(0x00, ac.getRaw()[4]);
+  // Turbo.
+  ac.setTurbo(true);
+  EXPECT_TRUE(ac.getTurbo());
+  EXPECT_EQ(0x81, ac.getRaw()[2]);
+  ac.setTurbo(false);
+  EXPECT_FALSE(ac.getTurbo());
+  EXPECT_EQ(0x01, ac.getRaw()[2]);
+  // Light (Display).
+  ac.setLight(false);
+  EXPECT_FALSE(ac.getLight());
+  EXPECT_EQ(0xC4, ac.getRaw()[5]);
+  ac.setLight(true);
+  EXPECT_TRUE(ac.getLight());
+  EXPECT_EQ(0x44, ac.getRaw()[5]);
+  // Mode: only Cool is known.
+  ac.setMode(0x01);
+  EXPECT_EQ(kDaikin72Cool, ac.getMode());
+  ac.setMode(0);
+  EXPECT_EQ(kDaikin72Cool, ac.getMode());
+  ac.setMode(kDaikin72Cool);
+  EXPECT_EQ(kDaikin72Cool, ac.getMode());
+  EXPECT_EQ(kDaikin72Cool, IRDaikin72::convertMode(stdAc::opmode_t::kHeat));
+  EXPECT_EQ(kDaikin72Cool, IRDaikin72::convertMode(stdAc::opmode_t::kAuto));
+  EXPECT_EQ(kDaikin72Cool, IRDaikin72::convertMode(stdAc::opmode_t::kCool));
+  // Fan conversion.
+  EXPECT_EQ(kDaikin72FanAuto,
+            IRDaikin72::convertFan(stdAc::fanspeed_t::kAuto));
+  EXPECT_EQ(1, IRDaikin72::convertFan(stdAc::fanspeed_t::kMin));
+  EXPECT_EQ(2, IRDaikin72::convertFan(stdAc::fanspeed_t::kLow));
+  EXPECT_EQ(3, IRDaikin72::convertFan(stdAc::fanspeed_t::kMedium));
+  EXPECT_EQ(4, IRDaikin72::convertFan(stdAc::fanspeed_t::kMediumHigh));
+  EXPECT_EQ(4, IRDaikin72::convertFan(stdAc::fanspeed_t::kHigh));
+  EXPECT_EQ(5, IRDaikin72::convertFan(stdAc::fanspeed_t::kMax));
+  EXPECT_EQ(stdAc::fanspeed_t::kAuto, IRDaikin72::toCommonFanSpeed(0));
+  EXPECT_EQ(stdAc::fanspeed_t::kMin, IRDaikin72::toCommonFanSpeed(1));
+  EXPECT_EQ(stdAc::fanspeed_t::kLow, IRDaikin72::toCommonFanSpeed(2));
+  EXPECT_EQ(stdAc::fanspeed_t::kMedium, IRDaikin72::toCommonFanSpeed(3));
+  EXPECT_EQ(stdAc::fanspeed_t::kHigh, IRDaikin72::toCommonFanSpeed(4));
+  EXPECT_EQ(stdAc::fanspeed_t::kMax, IRDaikin72::toCommonFanSpeed(5));
+  EXPECT_EQ(stdAc::fanspeed_t::kAuto, IRDaikin72::toCommonFanSpeed(6));
+  // toString.
+  ac.on();
+  ac.setTemp(25);
+  ac.setFan(1);
+  ac.setSwingVertical(true);
+  ac.setTurbo(true);
+  EXPECT_EQ(
+      "Power: On, Mode: 68 (Cool), Temp: 25C, Fan: 1 (Min), "
+      "Swing(V): On, Swing(H): Off, Turbo: On, Light: On",
+      ac.toString());
+  ac.setFan(2);
+  ac.setSwingHorizontal(true);
+  ac.setTurbo(false);
+  ac.setLight(false);
+  EXPECT_EQ(
+      "Power: On, Mode: 68 (Cool), Temp: 25C, Fan: 2 (Low), "
+      "Swing(V): On, Swing(H): On, Turbo: Off, Light: Off",
+      ac.toString());
+  ac.setFan(3);
+  EXPECT_NE(std::string::npos, ac.toString().find("Fan: 3 (Medium)"));
+  ac.setFan(4);
+  EXPECT_NE(std::string::npos, ac.toString().find("Fan: 4 (High)"));
+  ac.setFan(5);
+  EXPECT_NE(std::string::npos, ac.toString().find("Fan: 5 (Maximum)"));
+}
+
+TEST(TestDaikin72Class, toCommon) {
+  IRDaikin72 ac(kGpioUnused);
+  ac.setRaw(kDaikin72PowerOnState);
+  stdAc::state_t common = ac.toCommon();
+  EXPECT_EQ(decode_type_t::DAIKIN72, common.protocol);
+  EXPECT_EQ(-1, common.model);
+  EXPECT_TRUE(common.power);
+  EXPECT_EQ(stdAc::opmode_t::kCool, common.mode);
+  EXPECT_TRUE(common.celsius);
+  EXPECT_EQ(24, common.degrees);
+  EXPECT_EQ(stdAc::fanspeed_t::kAuto, common.fanspeed);
+  EXPECT_EQ(stdAc::swingv_t::kOff, common.swingv);
+  EXPECT_EQ(stdAc::swingh_t::kOff, common.swingh);
+  EXPECT_FALSE(common.turbo);
+  EXPECT_FALSE(common.light);
+  // Unsupported.
+  EXPECT_FALSE(common.quiet);
+  EXPECT_FALSE(common.econo);
+  EXPECT_FALSE(common.filter);
+  EXPECT_FALSE(common.clean);
+  EXPECT_FALSE(common.beep);
+  EXPECT_EQ(-1, common.sleep);
+  EXPECT_EQ(-1, common.clock);
+
+  ac.setTemp(18);
+  ac.setFan(4);
+  ac.setSwingVertical(true);
+  ac.setSwingHorizontal(true);
+  ac.setTurbo(true);
+  ac.setLight(true);
+  ac.off();
+  common = ac.toCommon();
+  EXPECT_FALSE(common.power);
+  EXPECT_EQ(18, common.degrees);
+  EXPECT_EQ(stdAc::fanspeed_t::kHigh, common.fanspeed);
+  EXPECT_EQ(stdAc::swingv_t::kAuto, common.swingv);
+  EXPECT_EQ(stdAc::swingh_t::kAuto, common.swingh);
+  EXPECT_TRUE(common.turbo);
+  EXPECT_TRUE(common.light);
+}
+
+TEST(TestDecodeDaikin72, SyntheticExample) {
+  IRsendTest irsend(kGpioUnused);
+  IRrecv irrecv(kGpioUnused);
+  irsend.begin();
+
+  irsend.reset();
+  irsend.sendDaikin72(kDaikin72PowerOnState);
+  irsend.makeDecodeResult();
+  ASSERT_TRUE(irrecv.decode(&irsend.capture));
+  ASSERT_EQ(decode_type_t::DAIKIN72, irsend.capture.decode_type);
+  ASSERT_EQ(kDaikin72Bits, irsend.capture.bits);
+  EXPECT_STATE_EQ(kDaikin72PowerOnState, irsend.capture.state,
+                  irsend.capture.bits);
+  EXPECT_EQ(
+      "Power: On, Mode: 68 (Cool), Temp: 24C, Fan: 0 (Auto), "
+      "Swing(V): Off, Swing(H): Off, Turbo: Off, Light: Off",
+      IRAcUtils::resultAcToString(&irsend.capture));
+  EXPECT_EQ(
+      "f38000d50m7000s3500m450s450m450s1300m450s450m450s1300m450s450m450s1300"
+      "m450s450m450s1300m450s1300m450s450m450s450m450s450m450s1300m450s450m45"
+      "0s450m450s450m450s1300m450s450m450s450m450s1300m450s450m450s450m450s45"
+      "0m450s450m450s450m450s450m450s450m450s1300m450s450m450s450m450s450m450"
+      "s450m450s450m450s450m450s450m450s450m450s450m450s450m450s450m450s450m4"
+      "50s450m450s450m450s1300m450s450m450s450m450s450m450s1300m450s1300m450s"
+      "450m450s450m450s450m450s450m450s450m450s450m450s450m450s450m450s450m45"
+      "0s450m450s450m450s450m450s450m450s450m450s450m450s450m450s450m450s1300"
+      "m450s450m450s1300m450s1300m450s1300m450s450m450s450m450s109440",
+      irsend.outputStr());
+
+  irsend.reset();
+  irsend.sendDaikin72(kDaikin72PowerOffState);
+  irsend.makeDecodeResult();
+  ASSERT_TRUE(irrecv.decode(&irsend.capture));
+  ASSERT_EQ(decode_type_t::DAIKIN72, irsend.capture.decode_type);
+  ASSERT_EQ(kDaikin72Bits, irsend.capture.bits);
+  EXPECT_STATE_EQ(kDaikin72PowerOffState, irsend.capture.state,
+                  irsend.capture.bits);
+  stdAc::state_t result, prev;
+  ASSERT_TRUE(IRAcUtils::decodeToState(&irsend.capture, &result, &prev));
+  EXPECT_EQ(decode_type_t::DAIKIN72, result.protocol);
+  EXPECT_FALSE(result.power);
+  EXPECT_EQ(24, result.degrees);
+
+  // Too few bytes are not sent.
+  irsend.reset();
+  irsend.sendDaikin72(kDaikin72PowerOnState, kDaikin72StateLength - 1);
+  EXPECT_EQ("", irsend.outputStr());
+}
+
+// The `24_auto` learn of the RB2CA1 repo's captures.json, a Broadlink RM4
+// capture decoded to uSec with python-broadlink's rule (one tick 32.84 uSec).
+// The trailing 109455 uSec gap is left out as it does not fit a uint16_t.
+TEST(TestDecodeDaikin72, RealExample) {
+  IRsendTest irsend(kGpioUnused);
+  IRrecv irrecv(kGpioUnused);
+  const uint16_t rawData[147] = {
+      6994, 3546, 426, 426, 426, 1346, 426, 459, 459, 1280, 426, 459,
+      459, 1280, 459, 426, 492, 1280, 426, 1346, 426, 426, 459, 426,
+      459, 426, 459, 1280, 426, 459, 459, 426, 459, 394, 492, 1280,
+      459, 426, 426, 459, 426, 1346, 394, 459, 459, 426, 426, 426,
+      492, 394, 459, 426, 459, 426, 459, 426, 459, 1280, 459, 426,
+      426, 459, 426, 459, 426, 459, 426, 1280, 492, 394, 492, 394,
+      492, 394, 459, 426, 459, 426, 426, 459, 426, 426, 459, 426,
+      459, 426, 459, 1313, 394, 459, 492, 426, 459, 394, 492, 1280,
+      459, 426, 459, 426, 426, 459, 459, 426, 426, 426, 459, 426,
+      459, 426, 459, 394, 459, 426, 459, 426, 459, 426, 459, 394,
+      459, 426, 459, 426, 459, 426, 426, 459, 426, 459, 426, 1280,
+      459, 1313, 459, 426, 426, 1346, 426, 1313, 459, 1313, 426, 459,
+      426, 1346, 394};
+  const uint8_t expectedState[kDaikin72StateLength] = {
+      0xAA, 0x11, 0x09, 0x08, 0x01, 0x44, 0x00, 0x00, 0xBB};
+
+  irsend.begin();
+  irsend.reset();
+  irsend.sendRaw(rawData, 147, kDaikin72Freq);
+  irsend.makeDecodeResult();
+  ASSERT_TRUE(irrecv.decode(&irsend.capture));
+  ASSERT_EQ(decode_type_t::DAIKIN72, irsend.capture.decode_type);
+  ASSERT_EQ(kDaikin72Bits, irsend.capture.bits);
+  EXPECT_STATE_EQ(expectedState, irsend.capture.state, irsend.capture.bits);
+  EXPECT_EQ(
+      "Power: On, Mode: 68 (Cool), Temp: 24C, Fan: 0 (Auto), "
+      "Swing(V): On, Swing(H): Off, Turbo: Off, Light: On",
+      IRAcUtils::resultAcToString(&irsend.capture));
+  stdAc::state_t result, prev;
+  ASSERT_TRUE(IRAcUtils::decodeToState(&irsend.capture, &result, &prev));
+  EXPECT_EQ(stdAc::swingv_t::kAuto, result.swingv);
 }

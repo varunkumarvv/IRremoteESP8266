@@ -566,6 +566,58 @@ TEST(TestIRac, Daikin64) {
   ASSERT_EQ(expected, IRAcUtils::resultAcToString(&ac._irsend.capture));
 }
 
+TEST(TestIRac, Daikin72) {
+  IRDaikin72 ac(kGpioUnused);
+  IRac irac(kGpioUnused);
+  IRrecv capture(kGpioUnused);
+  // The RB2CA1's power on press captured on 2026-10-08.
+  const uint8_t expected_state[kDaikin72StateLength] = {
+      0xAA, 0x11, 0x09, 0x08, 0x00, 0xC4, 0x00, 0x00, 0x3A};
+  char expected[] =
+      "Power: On, Mode: 68 (Cool), Temp: 24C, Fan: 0 (Auto), "
+      "Swing(V): Off, Swing(H): Off, Turbo: Off, Light: Off";
+
+  stdAc::state_t state;
+  IRac::initState(&state);
+  state.protocol = decode_type_t::DAIKIN72;
+  state.power = true;
+  state.mode = stdAc::opmode_t::kCool;
+  state.celsius = true;
+  state.degrees = 24;
+  state.fanspeed = stdAc::fanspeed_t::kAuto;
+  state.swingv = stdAc::swingv_t::kOff;
+  state.swingh = stdAc::swingh_t::kOff;
+  state.turbo = false;
+  state.light = false;
+  // The sendAc() case drives this protocol.
+  ASSERT_TRUE(irac.sendAc(state, NULL));
+
+  ac.begin();
+  irac.daikin72(&ac,
+                state.power,      // Power
+                state.mode,       // Mode
+                state.degrees,    // Celsius
+                state.fanspeed,   // Fan speed
+                state.swingv,     // Vertical swing
+                state.swingh,     // Horizontal swing
+                state.turbo,      // Turbo
+                state.light);     // Light
+  ASSERT_EQ(expected, ac.toString());
+  ac._irsend.makeDecodeResult();
+  EXPECT_TRUE(capture.decode(&ac._irsend.capture));
+  ASSERT_EQ(DAIKIN72, ac._irsend.capture.decode_type);
+  ASSERT_EQ(kDaikin72Bits, ac._irsend.capture.bits);
+  EXPECT_STATE_EQ(expected_state, ac._irsend.capture.state,
+                  ac._irsend.capture.bits);
+  ASSERT_EQ(expected, IRAcUtils::resultAcToString(&ac._irsend.capture));
+  stdAc::state_t r, p;
+  ASSERT_TRUE(IRAcUtils::decodeToState(&ac._irsend.capture, &r, &p));
+  EXPECT_EQ(decode_type_t::DAIKIN72, r.protocol);
+  EXPECT_TRUE(r.power);
+  EXPECT_EQ(24, r.degrees);
+  EXPECT_FALSE(r.light);
+}
+
 TEST(TestIRac, DelonghiAc) {
   IRDelonghiAc ac(kGpioUnused);
   IRac irac(kGpioUnused);

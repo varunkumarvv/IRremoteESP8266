@@ -4625,3 +4625,305 @@ bool IRrecv::decodeDaikin312(decode_results *results, uint16_t offset,
   return true;
 }
 #endif  // DECODE_DAIKIN312
+
+#if SEND_DAIKIN72
+/// Send a Daikin72 (72-bit) A/C formatted message.
+/// Status: BETA / Should work. Built from the RB2CA1 (India) remote's captures.
+/// @param[in] data The message to be sent.
+/// @param[in] nbytes The number of bytes of message to be sent.
+/// @param[in] repeat The number of times the command is to be repeated.
+/// @see https://github.com/adityasanehi/daikin-rb2ca1-ir-reverse
+void IRsend::sendDaikin72(const unsigned char data[], const uint16_t nbytes,
+                          const uint16_t repeat) {
+  if (nbytes < kDaikin72StateLength)
+    return;  // Not enough bytes to send a proper message.
+  // Header + Data + Footer
+  sendGeneric(kDaikin72HdrMark, kDaikin72HdrSpace,
+              kDaikin72BitMark, kDaikin72OneSpace,
+              kDaikin72BitMark, kDaikin72ZeroSpace,
+              kDaikin72BitMark, kDaikin72Gap,
+              data, nbytes, kDaikin72Freq, false, repeat, 50);
+}
+#endif  // SEND_DAIKIN72
+
+#if DECODE_DAIKIN72
+/// Decode the supplied Daikin 72-bit message. (DAIKIN72)
+/// Status: BETA / Should work.
+/// @param[in,out] results Ptr to the data to decode & where to store the decode
+///   result.
+/// @param[in] offset The starting index to use when attempting to decode the
+///   raw data. Typically/Defaults to kStartOffset.
+/// @param[in] nbits The number of data bits to expect.
+/// @param[in] strict Flag indicating if we should perform strict matching.
+/// @return A boolean. True if it can decode it, false if it can't.
+/// @see https://github.com/adityasanehi/daikin-rb2ca1-ir-reverse
+bool IRrecv::decodeDaikin72(decode_results *results, uint16_t offset,
+                            const uint16_t nbits, const bool strict) {
+  // Compliance
+  if (strict && nbits != kDaikin72Bits) return false;
+  if (nbits % 8 != 0 || nbits / 8 > kStateSizeMax) return false;
+
+  // Header + Data + Footer
+  if (!matchGeneric(results->rawbuf + offset, results->state,
+                    results->rawlen - offset, nbits,
+                    kDaikin72HdrMark, kDaikin72HdrSpace,
+                    kDaikin72BitMark, kDaikin72OneSpace,
+                    kDaikin72BitMark, kDaikin72ZeroSpace,
+                    kDaikin72BitMark, kDaikin72Gap,
+                    true, kDaikinTolerance, kDaikinMarkExcess, false))
+    return false;
+
+  // Compliance
+  if (strict && !IRDaikin72::validChecksum(results->state, nbits / 8))
+    return false;
+
+  // Success
+  results->decode_type = decode_type_t::DAIKIN72;
+  results->bits = nbits;
+  // No need to record the state as we stored it as we decoded it.
+  // As we use result->state, we don't record value, address, or command as it
+  // is a union data type.
+  return true;
+}
+#endif  // DECODE_DAIKIN72
+
+/// Class constructor
+/// @param[in] pin GPIO to be used when sending.
+/// @param[in] inverted Is the output signal to be inverted?
+/// @param[in] use_modulation Is frequency modulation to be used?
+IRDaikin72::IRDaikin72(const uint16_t pin, const bool inverted,
+                       const bool use_modulation)
+    : _irsend(pin, inverted, use_modulation) { stateReset(); }
+
+/// Set up hardware to be able to send a message.
+void IRDaikin72::begin(void) { _irsend.begin(); }
+
+#if SEND_DAIKIN72
+/// Send the current internal state as an IR message.
+/// @param[in] repeat Nr. of times the message will be repeated.
+void IRDaikin72::send(const uint16_t repeat) {
+  _irsend.sendDaikin72(getRaw(), kDaikin72StateLength, repeat);
+}
+#endif  // SEND_DAIKIN72
+
+/// Calculate the checksum for a given state.
+/// @param[in] state The array to calc the checksum of.
+/// @param[in] length The length/size of the array.
+/// @return The checksum: the sum of every byte but the last, xor 0xAA.
+uint8_t IRDaikin72::calcChecksum(const uint8_t state[],
+                                 const uint16_t length) {
+  if (length == 0) return kDaikin72ChecksumXor;
+  return sumBytes(state, length - 1) ^ kDaikin72ChecksumXor;
+}
+
+/// Verify the checksum and the sync bytes are valid for a given state.
+/// @param[in] state The array to verify the checksum of.
+/// @param[in] length The length/size of the array.
+/// @return true, if the state is valid. Otherwise, false.
+bool IRDaikin72::validChecksum(const uint8_t state[], const uint16_t length) {
+  if (length < kDaikin72StateLength) return false;
+  if (state[0] != kDaikin72Sync1 || state[1] != kDaikin72Sync2) return false;
+  return state[length - 1] == calcChecksum(state, length);
+}
+
+/// Calculate and set the checksum values for the internal state.
+void IRDaikin72::checksum(void) { _.Sum = calcChecksum(_.raw); }
+
+/// Reset the internal state to a fixed known good state.
+/// @note Power off, 24C, Cool, Fan auto, both swings off, display on.
+void IRDaikin72::stateReset(void) {
+  static const uint8_t kReset[kDaikin72StateLength] = {
+      kDaikin72Sync1, kDaikin72Sync2, 0x01, 0x08, 0x00, kDaikin72Cool,
+      0x00, 0x00, 0xA2};
+  std::memcpy(_.raw, kReset, kDaikin72StateLength);
+}
+
+/// Get a PTR to the internal state/code for this protocol.
+/// @return PTR to a code for this protocol based on the current internal state.
+uint8_t *IRDaikin72::getRaw(void) {
+  checksum();  // Ensure correct settings before sending.
+  return _.raw;
+}
+
+/// Set the internal state from a valid code for this protocol.
+/// @param[in] new_code A valid code for this protocol.
+void IRDaikin72::setRaw(const uint8_t new_code[]) {
+  std::memcpy(_.raw, new_code, kDaikin72StateLength);
+}
+
+/// Change the power setting to On.
+void IRDaikin72::on(void) { setPower(true); }
+
+/// Change the power setting to Off.
+void IRDaikin72::off(void) { setPower(false); }
+
+/// Change the power setting.
+/// @param[in] on true, the setting is on. false, the setting is off.
+void IRDaikin72::setPower(const bool on) { _.Power = on; }
+
+/// Get the value of the current power setting.
+/// @return true, the setting is on. false, the setting is off.
+bool IRDaikin72::getPower(void) const { return _.Power; }
+
+/// Set the temperature.
+/// @param[in] temp The temperature in degrees celsius.
+void IRDaikin72::setTemp(const uint8_t temp) {
+  uint8_t degrees = std::max(temp, kDaikin72MinTemp);
+  degrees = std::min(degrees, kDaikin72MaxTemp);
+  _.Temp = degrees - kDaikin72TempOffset;
+}
+
+/// Get the current temperature setting.
+/// @return The current setting for temp. in degrees celsius.
+uint8_t IRDaikin72::getTemp(void) const {
+  return _.Temp + kDaikin72TempOffset;
+}
+
+/// Set the speed of the fan.
+/// @param[in] fan The desired setting. 0 is auto, 1-5 is the speed.
+void IRDaikin72::setFan(const uint8_t fan) {
+  _.Fan = (fan <= kDaikin72FanMax) ? fan : kDaikin72FanAuto;
+}
+
+/// Get the current fan speed setting.
+/// @return The current fan speed. 0 is auto, 1-5 is the speed.
+uint8_t IRDaikin72::getFan(void) const { return _.Fan; }
+
+/// Set the operating mode of the A/C.
+/// @param[in] mode The desired operating mode.
+/// @note Only Cool is known, so any other value is stored as Cool.
+void IRDaikin72::setMode(const uint8_t mode) {
+  switch (mode) {
+    case kDaikin72Cool:
+      _.Mode = mode;
+      break;
+    default:
+      _.Mode = kDaikin72Cool;
+  }
+}
+
+/// Get the operating mode setting of the A/C.
+/// @return The current operating mode setting.
+uint8_t IRDaikin72::getMode(void) const { return _.Mode; }
+
+/// Set the Vertical Swing mode of the A/C.
+/// @param[in] on true, the setting is on. false, the setting is off.
+void IRDaikin72::setSwingVertical(const bool on) { _.SwingV = on; }
+
+/// Get the Vertical Swing mode of the A/C.
+/// @return true, the setting is on. false, the setting is off.
+bool IRDaikin72::getSwingVertical(void) const { return _.SwingV; }
+
+/// Set the Horizontal Swing mode of the A/C.
+/// @param[in] on true, the setting is on. false, the setting is off.
+void IRDaikin72::setSwingHorizontal(const bool on) { _.SwingH = on; }
+
+/// Get the Horizontal Swing mode of the A/C.
+/// @return true, the setting is on. false, the setting is off.
+bool IRDaikin72::getSwingHorizontal(void) const { return _.SwingH; }
+
+/// Set the Turbo (Powerful) mode of the A/C.
+/// @param[in] on true, the setting is on. false, the setting is off.
+void IRDaikin72::setTurbo(const bool on) { _.Turbo = on; }
+
+/// Get the Turbo (Powerful) mode of the A/C.
+/// @return true, the setting is on. false, the setting is off.
+bool IRDaikin72::getTurbo(void) const { return _.Turbo; }
+
+/// Set the Light (Display) mode of the A/C.
+/// @param[in] on true, the display is on. false, the display is off.
+void IRDaikin72::setLight(const bool on) { _.DisplayOff = !on; }
+
+/// Get the Light (Display) mode of the A/C.
+/// @return true, the display is on. false, the display is off.
+bool IRDaikin72::getLight(void) const { return !_.DisplayOff; }
+
+/// Convert a stdAc::opmode_t enum into its native mode.
+/// @param[in] mode The enum to be converted.
+/// @return The native equivalent of the enum.
+/// @note Only Cool is known, so every mode gives Cool.
+uint8_t IRDaikin72::convertMode(const stdAc::opmode_t mode) {
+  switch (mode) {
+    default: return kDaikin72Cool;
+  }
+}
+
+/// Convert a stdAc::fanspeed_t enum into it's native speed.
+/// @param[in] speed The enum to be converted.
+/// @return The native equivalent of the enum.
+uint8_t IRDaikin72::convertFan(const stdAc::fanspeed_t speed) {
+  switch (speed) {
+    case stdAc::fanspeed_t::kMin:        return kDaikin72FanMin;
+    case stdAc::fanspeed_t::kLow:        return kDaikin72FanLow;
+    case stdAc::fanspeed_t::kMedium:     return kDaikin72FanMed;
+    case stdAc::fanspeed_t::kMediumHigh:
+    case stdAc::fanspeed_t::kHigh:       return kDaikin72FanHigh;
+    case stdAc::fanspeed_t::kMax:        return kDaikin72FanMax;
+    default:                             return kDaikin72FanAuto;
+  }
+}
+
+/// Convert a native fan speed into its stdAc equivalent.
+/// @param[in] speed The native setting to be converted.
+/// @return The stdAc equivalent of the native setting.
+stdAc::fanspeed_t IRDaikin72::toCommonFanSpeed(const uint8_t speed) {
+  switch (speed) {
+    case kDaikin72FanMin:  return stdAc::fanspeed_t::kMin;
+    case kDaikin72FanLow:  return stdAc::fanspeed_t::kLow;
+    case kDaikin72FanMed:  return stdAc::fanspeed_t::kMedium;
+    case kDaikin72FanHigh: return stdAc::fanspeed_t::kHigh;
+    case kDaikin72FanMax:  return stdAc::fanspeed_t::kMax;
+    default:               return stdAc::fanspeed_t::kAuto;
+  }
+}
+
+/// Convert the current internal state into its stdAc::state_t equivalent.
+/// @return The stdAc equivalent of the native settings.
+stdAc::state_t IRDaikin72::toCommon(void) const {
+  stdAc::state_t result{};
+  result.protocol = decode_type_t::DAIKIN72;
+  result.model = -1;  // No models used.
+  result.power = _.Power;
+  result.mode = stdAc::opmode_t::kCool;
+  result.celsius = true;
+  result.degrees = getTemp();
+  result.fanspeed = toCommonFanSpeed(_.Fan);
+  result.swingv = _.SwingV ? stdAc::swingv_t::kAuto : stdAc::swingv_t::kOff;
+  result.swingh = _.SwingH ? stdAc::swingh_t::kAuto : stdAc::swingh_t::kOff;
+  result.turbo = _.Turbo;
+  result.light = getLight();
+  // Not supported.
+  result.quiet = false;
+  result.econo = false;
+  result.filter = false;
+  result.clean = false;
+  result.beep = false;
+  result.sleep = -1;
+  result.clock = -1;
+  return result;
+}
+
+/// Convert the current internal state into a human readable string.
+/// @return A human readable string.
+String IRDaikin72::toString(void) const {
+  String result = "";
+  result.reserve(110);  // Reserve some heap for the string to reduce fragging.
+  result += addBoolToString(_.Power, kPowerStr, false);
+  result += addModeToString(_.Mode, 0xFF, kDaikin72Cool, 0xFF, 0xFF, 0xFF);
+  result += addTempToString(getTemp());
+  if (_.Fan == kDaikin72FanMin) {
+    result += addIntToString(_.Fan, kFanStr);
+    result += kSpaceLBraceStr;
+    result += kMinStr;
+    result += ')';
+  } else {
+    result += addFanToString(_.Fan, kDaikin72FanHigh, kDaikin72FanLow,
+                             kDaikin72FanAuto, 0xFF, kDaikin72FanMed,
+                             kDaikin72FanMax);
+  }
+  result += addBoolToString(_.SwingV, kSwingVStr);
+  result += addBoolToString(_.SwingH, kSwingHStr);
+  result += addBoolToString(_.Turbo, kTurboStr);
+  result += addBoolToString(getLight(), kLightStr);
+  return result;
+}

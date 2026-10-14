@@ -924,6 +924,11 @@ class IRsend {
                  const uint16_t nbytes = kEuromStateLength,
                  const uint16_t repeat = kNoRepeat);
 #endif  // SEND_EUROM
+#if SEND_DAIKIN72
+  void sendDaikin72(const unsigned char data[],
+                    const uint16_t nbytes = kDaikin72StateLength,
+                    const uint16_t repeat = kDaikin72DefaultRepeat);
+#endif  // SEND_DAIKIN72
 
  protected:
 #ifdef UNIT_TEST

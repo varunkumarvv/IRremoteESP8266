@@ -252,6 +252,9 @@ bool IRac::isProtocolSupported(const decode_type_t protocol) {
 #if SEND_DAIKIN64
     case decode_type_t::DAIKIN64:
 #endif
+#if SEND_DAIKIN72
+    case decode_type_t::DAIKIN72:
+#endif
 #if SEND_DELONGHI_AC
     case decode_type_t::DELONGHI_AC:
 #endif
@@ -1160,6 +1163,43 @@ void IRac::daikin64(IRDaikin64 *ac,
   ac->send();
 }
 #endif  // SEND_DAIKIN64
+
+#if SEND_DAIKIN72
+/// Send a Daikin 72-bit A/C message with the supplied settings.
+/// @param[in, out] ac A Ptr to an IRDaikin72 object to use.
+/// @param[in] on The power setting.
+/// @param[in] mode The operation mode setting.
+/// @param[in] degrees The temperature setting in degrees.
+/// @param[in] fan The speed setting for the fan.
+/// @param[in] swingv The vertical swing setting.
+/// @param[in] swingh The horizontal swing setting.
+/// @param[in] turbo Run the device in turbo/powerful mode.
+/// @param[in] light Turn on the LED/Display mode.
+void IRac::daikin72(IRDaikin72 *ac,
+                    const bool on, const stdAc::opmode_t mode,
+                    const float degrees, const stdAc::fanspeed_t fan,
+                    const stdAc::swingv_t swingv,
+                    const stdAc::swingh_t swingh,
+                    const bool turbo, const bool light) {
+  ac->begin();
+  ac->setPower(on);
+  ac->setMode(ac->convertMode(mode));
+  ac->setTemp(degrees);
+  ac->setFan(ac->convertFan(fan));
+  ac->setSwingVertical(swingv != stdAc::swingv_t::kOff);
+  ac->setSwingHorizontal(swingh != stdAc::swingh_t::kOff);
+  // No Quiet setting available.
+  ac->setTurbo(turbo);
+  ac->setLight(light);
+  // No Econo setting available.
+  // No Filter setting available.
+  // No Clean setting available.
+  // No Beep setting available.
+  // No Sleep setting available.
+  // No Clock setting available.
+  ac->send();
+}
+#endif  // SEND_DAIKIN72
 
 #if SEND_DELONGHI_AC
 /// Send a Delonghi A/C message with the supplied settings.
@@ -3316,6 +3356,15 @@ bool IRac::sendAc(const stdAc::state_t desired, const stdAc::state_t *prev) {
       break;
     }
 #endif  // SEND_DAIKIN64
+#if SEND_DAIKIN72
+    case DAIKIN72:
+    {
+      IRDaikin72 ac(_pin, _inverted, _modulation);
+      daikin72(&ac, send.power, send.mode, degC, send.fanspeed, send.swingv,
+               send.swingh, send.turbo, send.light);
+      break;
+    }
+#endif  // SEND_DAIKIN72
 #if SEND_DELONGHI_AC
     case DELONGHI_AC:
     {
@@ -4321,6 +4370,13 @@ String resultAcToString(const decode_results * const result) {
       return ac.toString();
     }
 #endif  // DECODE_DAIKIN64
+#if DECODE_DAIKIN72
+    case decode_type_t::DAIKIN72: {
+      IRDaikin72 ac(kGpioUnused);
+      ac.setRaw(result->state);
+      return ac.toString();
+    }
+#endif  // DECODE_DAIKIN72
 #if DECODE_DELONGHI_AC
     case decode_type_t::DELONGHI_AC: {
       IRDelonghiAc ac(kGpioUnused);
@@ -4832,6 +4888,14 @@ bool decodeToState(const decode_results *decode, stdAc::state_t *result,
       break;
     }
 #endif  // DECODE_DAIKIN64
+#if DECODE_DAIKIN72
+    case decode_type_t::DAIKIN72: {
+      IRDaikin72 ac(kGpioUnused);
+      ac.setRaw(decode->state);
+      *result = ac.toCommon();
+      break;
+    }
+#endif  // DECODE_DAIKIN72
 #if DECODE_DELONGHI_AC
     case decode_type_t::DELONGHI_AC: {
       IRDelonghiAc ac(kGpioUnused);

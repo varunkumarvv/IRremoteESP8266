@@ -898,6 +898,12 @@ class IRrecv {
                    const uint16_t nbits = kEuromBits,
                    const bool strict = true);
 #endif  // DECODE_EUROM
+#if DECODE_DAIKIN72
+  bool decodeDaikin72(decode_results *results,
+                      uint16_t offset = kStartOffset,
+                      const uint16_t nbits = kDaikin72Bits,
+                      const bool strict = true);
+#endif  // DECODE_DAIKIN72
 };
 
 #endif  // IRRECV_H_

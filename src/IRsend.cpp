@@ -737,6 +737,8 @@ uint16_t IRsend::defaultBits(const decode_type_t protocol) {
       return kDaikin312Bits;
     case DAIKIN64:
       return kDaikin64Bits;
+    case DAIKIN72:
+      return kDaikin72Bits;
     case ELECTRA_AC:
       return kElectraAcBits;
     case EUROM:
@@ -1260,6 +1262,11 @@ bool IRsend::send(const decode_type_t type, const uint8_t *state,
       sendDaikin312(state, nbytes);
       break;
 #endif  // SEND_DAIKIN312
+#if SEND_DAIKIN72
+    case DAIKIN72:
+      sendDaikin72(state, nbytes);
+      break;
+#endif  // SEND_DAIKIN72
 #if SEND_ELECTRA_AC
     case ELECTRA_AC:
       sendElectraAC(state, nbytes);
